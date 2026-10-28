@@ -1,0 +1,9 @@
+services:
+  wprdc-pipeline:
+    build: .
+    container_name: ckan_dbt_duckdb
+    volumes:
+      - ./data:/app/data
+    environment:
+      - PREFECT_API_URL=${PREFECT_API_URL:-}
+      - PREFECT_API_KEY=${PREFECT_API_KEY:-}

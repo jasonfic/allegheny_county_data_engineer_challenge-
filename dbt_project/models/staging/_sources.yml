@@ -1,0 +1,8 @@
+version: 2
+
+sources:
+  - name: raw_ckan
+    schema: raw_ckan
+    tables:
+      - name: daily_aqi
+        description: "Raw Daily AQI Data records from WPRDC CKAN API"
