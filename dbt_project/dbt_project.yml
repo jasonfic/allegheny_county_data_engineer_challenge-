@@ -1,0 +1,33 @@
+name: 'wprdc_aqi_analytics'
+version: '1.0.0'
+config-version: 2
+
+# This points to the profile name in your profiles.yml
+profile: 'wprdc_aqi_analytics'
+
+# Guarantees dbt looks inside the project folder for packages
+packages-install-path: "dbt_packages"
+
+model-paths: ["models"]
+
+target-path: "target"
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+models:
+  wprdc_aqi_analytics:
+    # Default behavior
+    +materialized: view   
+
+    # More lightweight, prevents bloating container's disk space
+    staging:
+      +materialized: view
+
+    # Better for computing aggregate statistics
+    # Prevents DuckDB from scanning and recalculating data every time data is used
+    intermediate:
+      +materialized: table
+
+    marts:
+      +materialized: view

@@ -1,4 +1,4 @@
-wprdc_pipeline:
+wprdc_aqi_analytics:
   target: dev
   outputs:
     dev:
