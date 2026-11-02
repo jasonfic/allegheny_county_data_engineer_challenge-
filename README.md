@@ -7,7 +7,7 @@ The pipeline is designed to be triggered manually, and it can be executed multip
 ## Architecture & Data Modeling Structure
 
 
-    [Raw data from WPRDC Daily AQI Data dataset](https://data.wprdc.org/datastore/dump/4ab1e23f-3262-4bd3-adbf-f72f0119108b)
+    Raw data from WPRDC Daily AQI Data dataset
                    │
                    ▼
     Prefect-orchestrated Python script, loads data into daily_aqi table in DuckDB

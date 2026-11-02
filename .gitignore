@@ -2,5 +2,5 @@
 .DS_Store
 .vscode/
 scratch.*
-data/*.csv
+data/
 flows/__pycache__/
