@@ -29,6 +29,7 @@ WORKDIR /app
 
 ENV PYTHONUNBUFFERED=1
 ENV DBT_PROFILES_DIR=/app/config
+ENV PYTHONPATH=/app
 
 # Run the Prefect flow entrypoint by default
 CMD ["python", "flows/pipeline_flow.py"]

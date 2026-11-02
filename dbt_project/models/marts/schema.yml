@@ -1,0 +1,31 @@
+version: 2
+
+models:
+  - name: fct_ckan__monthly_severe_aqi
+    description: "Monthly summary table tracking the frequency of severe air quality days across the county."
+    columns:
+      - name: measurement_month
+        description: "First day of the month representing the primary grain of the reporting mart."
+        tests:
+          - unique
+          - not_null
+
+      - name: total_days_in_month
+        description: "Total number of calendar days observed in the dataset for that month."
+        tests:
+          - not_null
+
+      - name: unsafe_day_count
+        description: "Number of days where the county headline AQI breached the 'Unhealthy' category (150+)."
+        tests:
+          - not_null
+
+      - name: peak_monthly_aqi
+        description: "Highest single AQI observation recorded anywhere in the county during the month."
+        tests:
+          - not_null
+
+      - name: dominant_critical_parameter
+        description: "The pollutant most frequently responsible for peak daily AQI during the month."
+        tests:
+          - not_null

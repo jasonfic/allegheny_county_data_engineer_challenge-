@@ -1,0 +1,44 @@
+version: 2
+
+models:
+  - name: stg_ckan__daily_aqi
+    description: "Cleaned and standardized air quality sensor records from CKAN Datastore."
+    columns:
+      - name: record_id
+        description: "Surrogate/internal primary key assigned by CKAN (_id)."
+        tests:
+          - unique
+          - not_null
+
+      - name: measurement_date
+        description: "Date the sensor observation was recorded."
+        tests:
+          - not_null
+
+      - name: site_name
+        description: "Air monitoring station name."
+        tests:
+          - not_null
+
+      - name: metric_parameter
+        description: "Pollutant or instrument metric code (e.g., PM25_640, OZONE, SO2)."
+        tests:
+          - not_null
+
+      - name: index_value
+        description: "Normalized Air Quality Index (AQI) value."
+        tests:
+          - not_null
+
+      - name: aqi_category
+        description: "EPA descriptor for the recorded index value."
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["Good", "Moderate", "Unhealthy for Sensitive Groups", "Unhealthy", "Very Unhealthy", "Hazardous"]
+
+      - name: extracted_at
+        description: "UTC timestamp when the row was ingested by the pipeline."
+        tests:
+          - not_null

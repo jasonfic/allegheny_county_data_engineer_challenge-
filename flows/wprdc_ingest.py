@@ -1,4 +1,6 @@
+import datetime
 import duckdb
+import pyarrow as pa
 from typing import Optional
 from ckanapi import RemoteCKAN
 from prefect import task
@@ -10,14 +12,25 @@ from tenacity import retry, stop_after_attempt, wait_exponential
     wait=wait_exponential(multiplier=2, min=4, max=60),
     reraise=True,
 )
-def execute_sql(ckan_client: RemoteCKAN, sql: str) -> list[dict]:
-    """
-    Executes a datastore_search_sql query with exponential backoff.
-    (Source: select dataset in the WPRDC site and click "Data API" > "Python" > "Querying" > "SQL query example")
-    """
+
+def get_current_watermark(conn: duckdb.DuckDBPyConnection, table_name: str) -> Optional[str]:
+    """Inspects DuckDB to check if the table exists and finds the latest date to inform subsequent loads."""
+    table_check = conn.execute(f"""
+        SELECT COUNT(*) 
+        FROM information_schema.tables 
+        WHERE table_schema = 'raw_ckan' AND table_name = '{table_name}';
+    """).fetchone()[0]
+
+    if table_check == 0:
+        return None
+
+    max_date = conn.execute(f"SELECT MAX(date) FROM raw_ckan.{table_name};").fetchone()[0]
+
+    return max_date
+
+def execute_ckan_sql(ckan_client: RemoteCKAN, sql: str) -> list[dict]:
     response = ckan_client.action.datastore_search_sql(sql=sql)
     return response.get("records", [])
-
 
 def fetch_all_records_paginated(
     ckan_client: RemoteCKAN, resource_id: str, batch_size: int = 10000
@@ -31,13 +44,15 @@ def fetch_all_records_paginated(
     offset = 0
 
     while True:
+        # Continually query API until limit is reached.
+        # (Source for datastore_search_sql query: select dataset in the WPRDC site and click "Data API" > "Python" > "Querying" > "SQL query example")
         sql = f"""
             SELECT *
             FROM "{resource_id}"
             ORDER BY "_id" ASC
             LIMIT {batch_size} OFFSET {offset}
         """
-        batch = execute_sql(ckan_client, sql)
+        batch = execute_ckan_sql(ckan_client, sql)
         if not batch:
             break
 
@@ -61,38 +76,96 @@ def extract_ckan_resource(
     db_path: str = "/app/data/analytics.duckdb",
 ) -> int:
     """
-    Ingests records from the WPRDC CKAN API and loads them to raw_ckan table in DuckDB.
+    Ingests records from the WPRDC CKAN API and idempotently loads them to raw_ckan table in DuckDB.
+    Ensures that duplicates are not loaded if pipeline is triggered multiple times
     """
-    client_kwargs = {}
-    if api_key:
-        client_kwargs["apikey"] = api_key
-
+    client_kwargs = {"apikey": api_key} if api_key else {}
     ckan = RemoteCKAN(portal_url, **client_kwargs)
 
     # Connect to DuckDB and persist
-    conn = duckdb.connect(db_path)
-    conn.execute("CREATE SCHEMA IF NOT EXISTS raw_ckan;")
+    try:
+        conn = duckdb.connect(db_path)
+        conn.execute("CREATE SCHEMA IF NOT EXISTS raw_ckan;")
 
-    print(f"Starting full load for resource {resource_id}")
-    records = fetch_all_records_paginated(ckan, resource_id)
+        max_date = get_current_watermark(conn, table_name)
+        ingested_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
-    if not records:
+        # -----------------------------------------------------------------
+        # Path 1: Initial Extraction (Cold Start)
+        # -----------------------------------------------------------------
+        if max_date is None:
+            print(f"No prior run detected. Extracting all {table_name} data from CKAN...")
+            records = fetch_all_records_paginated(ckan, resource_id)
+            if not records:
+                conn.close()
+                raise ValueError(f"Resource {resource_id} returned no records.")
+
+            for row in records:
+                row["_extracted_at"] = ingested_at
+                row["_source_resource_id"] = resource_id
+
+            batch_table = pa.Table.from_pylist(records)
+            conn.execute(f"""
+                CREATE TABLE raw_ckan.{table_name} AS 
+                SELECT * FROM batch_table;
+            """)
+            conn.close()
+            print(f"Cold start complete. {len(records)} records loaded.")
+            return len(records)
+
+        # -----------------------------------------------------------------
+        # Path 2: Incremental Extract (Inclusive Watermark)
+        # -----------------------------------------------------------------
+        print(f"Previous run detected. High-water mark date: {max_date}")
+        
+        # Query for records updated or added on or after the watermark date
+        sql = f"""
+            SELECT * FROM "{resource_id}"
+            WHERE "date" >= '{max_date}'
+            ORDER BY "_id" ASC
+        """
+        records = execute_ckan_sql(ckan, sql)
+
+        if not records:
+            print("No new or modified records found in CKAN.")
+            conn.close()
+            return 0
+
+        for row in records:
+            row["_extracted_at"] = ingested_at
+            row["_source_resource_id"] = resource_id
+
+        batch_table = pa.Table.from_pylist(records)
+
+        # Idempotent upsert to raw table, referenced in dbt_project/models/staging/_sources.yml
+        conn.begin()
+        try:
+            # Register incoming data
+            conn.register("temp_incoming", batch_table)
+
+            # Delete matching records using CKAN's internal primary key `_id`
+            conn.execute(f"""
+                DELETE FROM raw_ckan.{table_name}
+                WHERE _id IN (SELECT _id FROM temp_incoming);
+            """)
+
+            # Insert new / updated versions
+            conn.execute(f"""
+                INSERT INTO raw_ckan.{table_name}
+                SELECT * FROM temp_incoming;
+            """)
+
+            conn.commit()
+
+        except Exception as e:
+            conn.rollback()
+            conn.close()
+            raise RuntimeError(f"Failed to upsert records into {table_name} in DuckDB: {e}")
+
         conn.close()
-        return 0
+        print(f"Idempotent update complete. {len(records)} records processed.")
+        return len(records)
 
-    # Register in-memory data as a temporary DuckDB table
-    conn.register("temp_batch", duckdb.arrow(duckdb.from_df(records)))
+    finally:
+        conn.close()
 
-    # Idempotent write: ensure prior runs for the same date partition are replaced
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS raw_ckan.{table_name} AS 
-        SELECT * FROM temp_batch;
-    """)
-
-    total_count = len(records)
-    conn.close()
-
-    print(
-        f"Successfully loaded {total_count} records for {table_name} into DuckDB."
-    )
-    return total_count

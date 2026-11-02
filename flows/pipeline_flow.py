@@ -4,7 +4,7 @@ from flows.wprdc_ingest import extract_ckan_resource
 
 
 @task(name="run-dbt-models")
-def run_dbt():
+def run_dbt(extra_flags: list[str] = None):
     cmd = [
         "dbt",
         "run",
@@ -13,7 +13,17 @@ def run_dbt():
         "--profiles-dir",
         "/app/config",
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    if extra_flags:
+        cmd.extend(extra_flags)
+
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        print("========== DBT ERROR LOG ==========")
+        print(result.stdout)
+        print(result.stderr)
+        print("====================================")
+        raise RuntimeError(f"dbt run failed with returncode {result.returncode}")
+    
     print(result.stdout)
 
 
@@ -27,29 +37,35 @@ def test_dbt():
         "--profiles-dir",
         "/app/config",
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        print("========== DBT TEST FAILURES ==========")
+        print(result.stdout)
+        print(result.stderr)
+        print("=======================================")
+        raise RuntimeError(f"dbt test failed with returncode {result.returncode}")
+    
     print(result.stdout)
 
 
 @flow(name="wprdc_to_duckdb_dbt_pipeline")
 def pipeline(portal_url: str, resource_id: str, table_name: str):
     # 1. Ingestion
-    record_count = extract_ckan_resource(
-        portal_url=portal_url, resource_id=resource_id
-    )
+    record_count = extract_ckan_resource.fn(portal_url, resource_id, table_name)
     print(f"Ingested {record_count} records into raw_ckan.{table_name}")
 
     # 2. Transformations
-    run_dbt()
+    run_dbt.fn()
 
     # 3. Validation
-    test_dbt()
+    test_dbt.fn()
 
 
 if __name__ == "__main__":
-    # Example invocation using a CKAN endpoint and target resource
-    pipeline(
+    # Default invocation using a CKAN endpoint and target resource
+    pipeline.fn(
         portal_url="https://data.wprdc.org",
         resource_id="4ab1e23f-3262-4bd3-adbf-f72f0119108b",
         table_name="daily_aqi"
     )
+

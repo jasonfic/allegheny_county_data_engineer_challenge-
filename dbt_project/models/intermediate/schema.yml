@@ -1,0 +1,54 @@
+version: 2
+
+models:
+  - name: int_ckan__county_aqi_summary
+    description: "Daily countywide aggregate representing the headline AQI and worst-affected station via the Maximum Pollutant Principle."
+    columns:
+      - name: measurement_date
+        description: "Calendar date in YYYY-MM-DD format representing the primary grain of the model."
+        tests:
+          - unique
+          - not_null
+
+      - name: measurement_month
+        description: "Month parsed from measurement_date."
+        tests:
+          - not_null
+
+      - name: county_max_aqi
+        description: "The peak AQI value observed across all stations and parameters on this date."
+        tests:
+          - not_null
+
+      - name: critical_measurement_site_name
+        description: "The monitoring station that recorded the county_max_aqi."
+        tests:
+          - not_null
+
+      - name: critical_parameter
+        description: "The pollutant responsible for the county_max_aqi."
+        tests:
+          - not_null
+
+      - name: county_aqi_category
+        description: "EPA descriptor for the maximum recorded index value across county sites."
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["Good", "Moderate", "Unhealthy for Sensitive Groups", "Unhealthy", "Very Unhealthy", "Hazardous"]
+
+      - name: is_unsafe_day
+        description: "Boolean flag set to true if county_max_aqi is greater than 150 (encompassing Unhealthy to Hazardous days)."
+        tests:
+          - not_null
+
+      - name: total_reporting_sites
+        description: "Count of distinct monitoring sites active on this date."
+        tests:
+          - not_null
+
+      - name: sites_in_unsafe_range
+        description: "Count of distinct sites that measured in the Unhealthy and Hazardous AQI tiers (200+)."
+        tests:
+          - not_null
