@@ -5,5 +5,7 @@ services:
     volumes:
       - ./data:/app/data
     environment:
-      - PREFECT_API_URL=${PREFECT_API_URL:-}
-      - PREFECT_API_KEY=${PREFECT_API_KEY:-}
+      # Suppress ephemeral Prefect event publishing and background telemetry:
+      - PREFECT_EVENTS_ENABLED=false
+      - PREFECT_LOGGING_TO_API_ENABLED=false
+      - PREFECT_API_SERVICES_EVENTS_WORKER_ENABLED=false
